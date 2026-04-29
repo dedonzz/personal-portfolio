@@ -4,10 +4,11 @@
     <div class="ui-overlay">
       <div class="controls-info">
         <p><strong>Controls:</strong> W/↑ Gas | S/↓ Brake | A/← Left | D/→ Right | R Reset</p>
-        <p><strong>Vehicle Physics Engine:</strong> RV-Engine Based</p>
+        <p><strong>Camera Mode:</strong> 2.5D Fixed Angle</p>
+        <p v-if="loading">Loading assets...</p>
       </div>
       <div class="vehicle-stats">
-        <p>Speed: <span class="stat-value">{{ vehicleSpeed.toFixed(2) }}</span> m/s</p>
+        <p>Speed: <span class="stat-value">{{ (vehicleSpeed * 3.6).toFixed(1) }}</span> km/h</p>
         <p>Steer: <span class="stat-value">{{ vehicleSteer.toFixed(2) }}</span></p>
       </div>
       <div class="info-panel" :class="{ visible: showInfo }">
@@ -21,41 +22,29 @@
 <script>
 import { onMounted, onUnmounted, ref } from 'vue'
 import * as THREE from 'three'
+import * as CANNON from 'cannon-es'
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls'
 import { createRoom } from './config/room.js'
 import { createFurniture } from './config/furniture.js'
-import { vehicleConfig, createVehicleState, updateVehiclePhysics, createVehicleMesh } from './config/vehicle.js'
+import { Vehicle } from './config/vehicle.js'
 
 export default {
   setup() {
     const container = ref(null)
     const showInfo = ref(false)
+    const loading = ref(true)
     const infoTitle = ref('')
     const infoDescription = ref('')
     const infoLink = ref('')
     const vehicleSpeed = ref(0)
     const vehicleSteer = ref(0)
     
-    let scene, camera, renderer
-    let vehicleState = null
-    let vehicleMesh = null
-    let wheels = []
-    let furnitureData = null
-    let roomData = null
+    let scene, camera, renderer, world, controls
+    let vehicle = null
     let furnitureItems = []
-    let wallBoxes = []
-    let backWall = null
-    let frontWall = null
-    let leftWall = null
-    let rightWall = null
+    let roomData = null
     
-    // Input handling
-    const keys = {
-      w: false,
-      a: false,
-      s: false,
-      d: false,
-      r: false
-    }
+    const keys = { w: false, a: false, s: false, d: false, r: false }
 
     const handleKeyDown = (e) => {
       const key = e.key.toLowerCase()
@@ -75,133 +64,42 @@ export default {
       if (key === 'r') keys.r = false
     }
 
-    const hideFurnitureInfo = () => {
-      showInfo.value = false
-      infoTitle.value = ''
-      infoDescription.value = ''
-      infoLink.value = ''
-    }
-
     const updateFurnitureInfo = (vehiclePos) => {
       let nearestFurniture = null
       let nearestDistance = Infinity
-
-      for (const furniture of furnitureItems) {
-        const distance = furniture.mesh.position.distanceTo(vehiclePos)
+      for (const item of furnitureItems) {
+        const distance = item.mesh.position.distanceTo(vehiclePos)
         if (distance < nearestDistance) {
           nearestDistance = distance
-          nearestFurniture = furniture
+          nearestFurniture = item
         }
       }
-
-      if (nearestFurniture && nearestDistance <= 8) {
+      if (nearestFurniture && nearestDistance <= 5) { // Reduced distance since car is smaller
         showInfo.value = true
         infoTitle.value = nearestFurniture.name
         infoDescription.value = nearestFurniture.description
         infoLink.value = nearestFurniture.link
       } else {
-        hideFurnitureInfo()
-      }
-    }
-
-    const updateVehicle = () => {
-      if (!vehicleState) return
-
-      // Gather input
-      vehicleState.throttle = keys.w ? 1 : 0
-      vehicleState.brake = keys.s ? 1 : 0
-      
-      // Steering with smooth response
-      let steeringInput = 0
-      if (keys.a) steeringInput = 1
-      if (keys.d) steeringInput = -1
-      
-      vehicleState.steering = steeringInput
-
-      // Reset position
-      if (keys.r) {
-        vehicleState.position.set(0, 0.35, 0)
-        vehicleState.velocity.set(0, 0, 0)
-        vehicleState.rotation = 0
-        vehicleState.angularVelocity = 0
-        vehicleState.throttle = 0
-        vehicleState.brake = 0
-        vehicleState.steering = 0
-      }
-
-      // Update physics
-      updateVehiclePhysics(vehicleState, 0.016, vehicleConfig)
-
-      // Update vehicle mesh
-      if (vehicleMesh && vehicleMesh.mesh) {
-        vehicleMesh.mesh.position.copy(vehicleState.position)
-        vehicleMesh.mesh.rotation.y = vehicleState.rotation
-        
-        // Update wheel rotations
-        wheels.forEach((wheel, index) => {
-          if (wheel.group) {
-            // Steer front wheels
-            if (wheel.isFront) {
-              wheel.group.rotation.y = vehicleState.steeringAngle
-            }
-            
-            // Rotate tires
-            if (wheel.group.children[0]) {
-              wheel.rotationX += vehicleState.wheelRotation[index]
-              wheel.group.children[0].rotation.x = wheel.rotationX
-            }
-          }
-        })
-      }
-
-      // Update stats
-      vehicleSpeed.value = vehicleState.speed
-      vehicleSteer.value = vehicleState.steeringAngle
-
-      // Update furniture info
-      updateFurnitureInfo(vehicleState.position)
-
-      // Collision with furniture (simplified)
-      for (const furniture of furnitureItems) {
-        const distance = vehicleState.position.distanceTo(furniture.mesh.position)
-        if (distance < 2) {
-          // Bounce back
-          const direction = vehicleState.position.clone().sub(furniture.mesh.position).normalize()
-          vehicleState.velocity.copy(direction.multiplyScalar(5))
-        }
-      }
-
-      // Boundary check
-      if (Math.abs(vehicleState.position.x) > 15) {
-        vehicleState.position.x = vehicleState.position.x > 0 ? 14.8 : -14.8
-        vehicleState.velocity.x *= -0.5
-      }
-      if (Math.abs(vehicleState.position.z) > 15) {
-        vehicleState.position.z = vehicleState.position.z > 0 ? 14.8 : -14.8
-        vehicleState.velocity.z *= -0.5
+        showInfo.value = false
       }
     }
 
     const updateCamera = () => {
-      if (vehicleState) {
-        // Third-person camera following vehicle
-        const cameraDistance = 8
-        const cameraHeight = 6
-        const cameraOffset = new THREE.Vector3(
-          Math.sin(vehicleState.rotation) * cameraDistance,
-          cameraHeight,
-          Math.cos(vehicleState.rotation) * cameraDistance
-        )
+      if (vehicle && vehicle.position) {
+        // 2.5D Isometric Style Offset
+        // Fixed diagonal angle regardless of vehicle rotation
+        const cameraOffset = new THREE.Vector3(12, 12, 12) 
         
-        const targetCameraPos = vehicleState.position.clone().add(cameraOffset)
-        camera.position.lerp(targetCameraPos, 0.1)
-        camera.lookAt(vehicleState.position.x, vehicleState.position.y + 1, vehicleState.position.z)
+        const targetPos = vehicle.position.clone().add(cameraOffset)
+        camera.position.lerp(targetPos, 0.08) // Slightly faster lerp for snappier feel
+        camera.lookAt(vehicle.position)
         
-        // Hide walls based on camera position
-        backWall.visible = camera.position.z >= -15
-        frontWall.visible = camera.position.z <= 15
-        leftWall.visible = camera.position.x >= -15
-        rightWall.visible = camera.position.x <= 15
+        if (roomData) {
+          roomData.backWall.visible = camera.position.z >= -15
+          roomData.frontWall.visible = camera.position.z <= 15
+          roomData.leftWall.visible = camera.position.x >= -15
+          roomData.rightWall.visible = camera.position.x <= 15
+        }
       }
     }
 
@@ -211,16 +109,20 @@ export default {
       renderer.setSize(window.innerWidth, window.innerHeight)
     }
 
-    onMounted(() => {
+    onMounted(async () => {
       // Scene
       scene = new THREE.Scene()
-      scene.background = new THREE.Color(0x000000)
-      scene.fog = new THREE.Fog(0x000000, 100, 500)
+      scene.background = new THREE.Color(0x1a1a1a)
+      scene.fog = new THREE.Fog(0x1a1a1a, 60, 200)
+
+      // Physics World
+      world = new CANNON.World()
+      world.gravity.set(0, -9.82, 0)
+      world.broadphase = new CANNON.SAPBroadphase(world)
 
       // Camera
-      camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000)
-      camera.position.set(0, 8, 12)
-      camera.lookAt(0, 1, 0)
+      camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000)
+      camera.position.set(20, 20, 20)
 
       // Renderer
       renderer = new THREE.WebGLRenderer({ antialias: true })
@@ -228,36 +130,49 @@ export default {
       renderer.shadowMap.enabled = true
       renderer.shadowMap.type = THREE.PCFSoftShadowMap
       container.value.appendChild(renderer.domElement)
+      
+      // Controls
+      controls = new OrbitControls(camera, renderer.domElement)
+      controls.enableDamping = true
+      controls.target.set(0, 0, 0)
+      controls.enabled = false // Disable by default for "Fixed 2.5D" experience
 
-      // Create room
-      roomData = createRoom(scene)
-      wallBoxes = roomData.wallBoxes
-      backWall = roomData.backWall
-      frontWall = roomData.frontWall
-      leftWall = roomData.leftWall
-      rightWall = roomData.rightWall
-
-      // Create furniture
-      furnitureData = createFurniture(scene)
+      // Create room and furniture with physics
+      roomData = createRoom(scene, world)
+      const furnitureData = createFurniture(scene, world)
       furnitureItems = furnitureData.furnitureItems
-      furnitureData.updateFurnitureBoxes()
 
       // Create vehicle
-      vehicleState = createVehicleState()
-      const vehicleData = createVehicleMesh(scene, vehicleState, vehicleConfig)
-      vehicleMesh = vehicleData
-      wheels = vehicleData.wheels
+      vehicle = new Vehicle(scene, world)
+      await vehicle.init()
+      loading.value = false
 
       // Event listeners
       window.addEventListener('keydown', handleKeyDown)
       window.addEventListener('keyup', handleKeyUp)
       window.addEventListener('resize', onWindowResize)
-
+      
       // Animation loop
+      const timeStep = 1 / 60
+      let lastTime = performance.now()
+
       const animate = () => {
         requestAnimationFrame(animate)
-        updateVehicle()
-        updateCamera()
+        const currentTime = performance.now()
+        const deltaTime = (currentTime - lastTime) / 1000
+        lastTime = currentTime
+
+        world.step(timeStep, deltaTime)
+        
+        if (vehicle) {
+          vehicle.updateControls(keys)
+          vehicleSpeed.value = vehicle.speed
+          vehicleSteer.value = vehicle.steeringAngle
+          updateFurnitureInfo(vehicle.position)
+          updateCamera()
+        }
+
+        controls.update()
         renderer.render(scene, camera)
       }
       animate()
@@ -272,8 +187,10 @@ export default {
     return {
       container,
       showInfo,
+      loading,
       infoTitle,
       infoDescription,
+      infoLink,
       vehicleSpeed,
       vehicleSteer
     }
@@ -314,92 +231,53 @@ export default {
   color: white;
   padding: 15px;
   border-radius: 8px;
-  font-family: Arial, sans-serif;
+  font-family: 'Inter', sans-serif;
   font-size: 14px;
   max-width: 350px;
   margin-bottom: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
 }
 
 .controls-info p {
   margin: 0 0 8px 0;
-  font-weight: bold;
 }
 
 .vehicle-stats {
   background-color: rgba(0, 0, 0, 0.7);
-  color: #00ff00;
+  color: #00ffcc;
   padding: 12px;
   border-radius: 8px;
   font-family: 'Courier New', monospace;
   font-size: 13px;
   max-width: 200px;
   margin-bottom: 10px;
-  border: 1px solid #00ff00;
-}
-
-.vehicle-stats p {
-  margin: 0 0 4px 0;
+  border: 1px solid #00ffcc;
+  backdrop-filter: blur(10px);
 }
 
 .stat-value {
-  color: #ffff00;
+  color: #ffffff;
   font-weight: bold;
 }
 
 .info-panel {
   width: 320px;
   max-width: 90vw;
-  background-color: rgba(255, 255, 255, 0.95);
+  background-color: rgba(255, 255, 255, 0.9);
   color: #111;
-  padding: 18px;
+  padding: 20px;
   border-radius: 12px;
-  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.25);
-  transform: translateX(20px);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.3);
+  transform: translateX(-20px);
   opacity: 0;
-  transition: opacity 0.3s ease, transform 0.3s ease;
-  pointer-events: none;
+  transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  pointer-events: auto;
+  backdrop-filter: blur(10px);
 }
 
 .info-panel.visible {
   opacity: 1;
   transform: translateX(0);
-}
-
-.info-panel h2 {
-  margin: 0 0 10px 0;
-  font-size: 18px;
-}
-
-.info-panel h2 a {
-  color: #0066cc;
-  text-decoration: none;
-  cursor: pointer;
-}
-
-.info-panel h2 a:hover {
-  text-decoration: underline;
-}
-
-.info-panel p {
-  margin: 0;
-  line-height: 1.5;
-}
-
-@media (max-width: 768px) {
-  .controls-info {
-    font-size: 12px;
-    padding: 10px;
-    max-width: 280px;
-  }
-
-  .vehicle-stats {
-    font-size: 11px;
-    padding: 8px;
-  }
-
-  .info-panel {
-    width: 280px;
-    padding: 14px;
-  }
 }
 </style>

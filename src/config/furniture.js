@@ -1,44 +1,38 @@
 import * as THREE from 'three'
+import * as CANNON from 'cannon-es'
 
-export function createFurniture(scene) {
+export function createFurniture(scene, world) {
   const furnitureItems = []
 
-  const addFurnitureItem = (mesh, name, description, link = '') => {
-    const box = new THREE.Box3().setFromObject(mesh)
-    furnitureItems.push({ mesh, box, name, description, link })
+  const addFurnitureItem = (width, height, depth, x, y, z, color, name, description, link = '') => {
+    const geometry = new THREE.BoxGeometry(width, height, depth)
+    const material = new THREE.MeshPhongMaterial({ color, shininess: 20 })
+    const mesh = new THREE.Mesh(geometry, material)
+    mesh.position.set(x, y, z)
+    mesh.castShadow = true
+    mesh.receiveShadow = true
+    scene.add(mesh)
+
+    // Cannon body
+    const shape = new CANNON.Box(new CANNON.Vec3(width / 2, height / 2, depth / 2))
+    const body = new CANNON.Body({ mass: 0 })
+    body.addShape(shape)
+    body.position.set(x, y, z)
+    world.addBody(body)
+
+    furnitureItems.push({ mesh, name, description, link })
   }
 
   // Furniture Item 1 - Box
-  const box1Material = new THREE.MeshPhongMaterial({ color: 0x8b5a2b, shininess: 20 })
-  const box1 = new THREE.Mesh(new THREE.BoxGeometry(6, 1.5, 3), box1Material)
-  box1.position.set(-10, 0.75, -5)
-  box1.castShadow = true
-  box1.receiveShadow = true
-  scene.add(box1)
-  addFurnitureItem(box1, 'Furniture 1', 'A rectangular box for decoration.')
+  addFurnitureItem(6, 1.5, 3, -10, 0.75, -5, 0x8b5a2b, 'Furniture 1', 'A rectangular box for decoration.')
 
   // Furniture Item 2 - Box
-  const box2Material = new THREE.MeshPhongMaterial({ color: 0xa0522d, shininess: 10 })
-  const box2 = new THREE.Mesh(new THREE.BoxGeometry(5, 2, 2), box2Material)
-  box2.position.set(10, 1, -8)
-  box2.castShadow = true
-  box2.receiveShadow = true
-  scene.add(box2)
-  addFurnitureItem(box2, 'Furniture 2', 'Another rectangular box for the space.')
+  addFurnitureItem(5, 2, 2, 10, 1, -8, 0xa0522d, 'Furniture 2', 'Another rectangular box for the space.')
 
   // Furniture Item 3 - Box (McQueen Exhibit)
-  const box3Material = new THREE.MeshPhongMaterial({ color: 0xffd700, shininess: 30 })
-  const box3 = new THREE.Mesh(new THREE.BoxGeometry(3, 2.5, 1.5), box3Material)
-  box3.position.set(8, 1.25, 10)
-  box3.castShadow = true
-  box3.receiveShadow = true
-  scene.add(box3)
-  addFurnitureItem(box3, 'McQueen Exhibit', 'Discover Lightning McQueen, the legendary racecar from Radiator Springs.', 'https://en.wikipedia.org/wiki/Cars_(film)')
+  addFurnitureItem(3, 2.5, 1.5, 8, 1.25, 10, 0xffd700, 'McQueen Exhibit', 'Discover Lightning McQueen, the legendary racecar from Radiator Springs.', 'https://en.wikipedia.org/wiki/Cars_(film)')
 
   return {
-    furnitureItems,
-    updateFurnitureBoxes: () => {
-      furnitureItems.forEach((item) => item.box.setFromObject(item.mesh))
-    }
+    furnitureItems
   }
 }

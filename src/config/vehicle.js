@@ -1,356 +1,212 @@
 import * as THREE from 'three'
+import * as CANNON from 'cannon-es'
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader'
+import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js'
 
-// Vehicle configuration based on RV Engine physics
-export const vehicleConfig = {
-  // Mass and inertia
-  mass: 250, // kg
-  inertia: 800, // kg*m^2 (rotational inertia)
-  
-  // Dimensions
-  length: 4.47,
-  width: 1.96,
-  height: 1.0,
-  wheelBase: 2.8, // Distance between front and rear axles
-  track: 1.6, // Distance between left and right wheels
-  centerOfGravityHeight: 0.5,
-  
-  // Engine
-  maxForce: 750, // Newton
-  brakingForce: 36, // Newton (per second)
-  maxSteeringAngle: 0.5, // radians (about 28 degrees)
-  
-  // Tire friction
-  frictionCoefficient: 0.8,
-  frictionSlip: 30, // slip threshold
-  tireRadius: 0.35,
-  
-  // Suspension
-  suspensionStiffness: 55, // Spring constant
-  suspensionRestHeight: 0.5,
-  suspensionMaxTravel: 1.0,
-  suspensionMaxForce: 10000,
-  
-  // Damping
-  dampingRelaxation: 2.3,
-  dampingCompression: 4.3,
-  
-  // Aerodynamics
-  dragCoefficient: 0.3,
-  rollingResistance: 0.02,
-  
-  // Stability
-  rollInfluence: 0.01,
-  downForceCoefficient: 0.01
-}
+export class Vehicle {
+  constructor(scene, world) {
+    this.scene = scene
+    this.world = world
 
-export function createVehicleState() {
-  return {
-    // Position and rotation
-    position: new THREE.Vector3(0, 0.35, 0),
-    rotation: 0,
+    this.car = {}
+    this.chassis = new THREE.Group()
+    this.wheels = []
     
-    // Linear velocity
-    velocity: new THREE.Vector3(0, 0, 0),
-    speed: 0,
+    // Scaling the car down (0.5x smaller)
+    this.scale = 0.5
     
-    // Angular velocity
-    angularVelocity: 0,
+    this.chassisDimension = {
+      x: 1.96 * this.scale,
+      y: 1 * this.scale,
+      z: 4.47 * this.scale
+    }
+    this.chassisModelPos = {
+      x: 0,
+      y: -0.59 * this.scale,
+      z: 0
+    }
+    this.wheelScale = {
+      frontWheel: 0.67 * this.scale,
+      hindWheel: 0.67 * this.scale
+    }
+    this.mass = 150 // Slightly lighter for smaller size
     
-    // Control inputs (0 to 1)
-    throttle: 0,
-    brake: 0,
-    steering: 0,
+    this.position = new THREE.Vector3()
+    this.rotation = 0
+    this.speed = 0
+    this.steeringAngle = 0
     
-    // Suspension state (for each wheel)
-    suspensionLength: [
-      vehicleConfig.suspensionRestHeight,
-      vehicleConfig.suspensionRestHeight,
-      vehicleConfig.suspensionRestHeight,
-      vehicleConfig.suspensionRestHeight
-    ],
-    suspensionVelocity: [0, 0, 0, 0],
-    
-    // Tire state
-    tireSlip: [0, 0, 0, 0],
-    tireLongitudinalSlip: [0, 0, 0, 0],
-    
-    // Wheel rotation
-    wheelRotation: [0, 0, 0, 0],
-    
-    // Steering angle
-    steeringAngle: 0,
-    steeringVelocity: 0,
-    
-    // Vehicle state
-    isGrounded: true,
-    verticalVelocity: 0
+    console.log('Vehicle class initialized with scale:', this.scale)
   }
-}
 
-// Calculate tire grip force based on slip angle
-export function calculateTireGripForce(slipAngle, normalForce, config) {
-  // Simplified tire model: grip decreases with slip angle
-  const maxGripForce = config.frictionCoefficient * normalForce
-  const slipFactor = Math.max(0, 1 - Math.abs(slipAngle) / config.frictionSlip)
-  return maxGripForce * slipFactor
-}
-
-// Calculate suspension force
-export function calculateSuspensionForce(suspensionLength, vehicleVelocity, wheelVelocity, config) {
-  // Spring force
-  const displacement = config.suspensionRestHeight - suspensionLength
-  const springForce = displacement * config.suspensionStiffness
-  
-  // Damping force (based on compression/relaxation)
-  const relativeVelocity = vehicleVelocity - wheelVelocity
-  let dampingForce = 0
-  
-  if (relativeVelocity > 0) {
-    // Compression
-    dampingForce = relativeVelocity * config.dampingCompression
-  } else {
-    // Relaxation
-    dampingForce = relativeVelocity * config.dampingRelaxation
+  async init() {
+    console.log('Vehicle init starting...')
+    try {
+      await this.loadModels()
+      this.setChassis()
+      this.setWheels()
+      this.setupPhysicsSync()
+      console.log('Vehicle init completed')
+    } catch (error) {
+      console.error('Error during vehicle init:', error)
+    }
   }
-  
-  const totalForce = springForce + dampingForce
-  
-  // Limit suspension force
-  return Math.max(-config.suspensionMaxForce, Math.min(config.suspensionMaxForce, totalForce))
-}
 
-// Calculate vehicle dynamics
-export function updateVehiclePhysics(state, deltaTime, config) {
-  const dt = deltaTime || 0.016
+  loadModels() {
+    const gltfLoader = new GLTFLoader()
+    const dracoLoader = new DRACOLoader()
 
-  // Wheel positions relative to car center
-  const wheelPositions = [
-    { x: -config.track / 2, z: config.wheelBase / 2 },  // Front left
-    { x: config.track / 2, z: config.wheelBase / 2 },   // Front right
-    { x: -config.track / 2, z: -config.wheelBase / 2 }, // Rear left
-    { x: config.track / 2, z: -config.wheelBase / 2 }   // Rear right
-  ]
+    dracoLoader.setDecoderConfig({ type: 'js' })
+    dracoLoader.setDecoderPath('https://www.gstatic.com/draco/v1/decoders/')
+    gltfLoader.setDRACOLoader(dracoLoader)
 
-  // Update steering angle (smooth steering)
-  const maxSteeringRate = 0.1
-  const targetSteering = state.steering * config.maxSteeringAngle
-  const steeringDiff = targetSteering - state.steeringAngle
-  state.steeringVelocity = Math.max(-maxSteeringRate, Math.min(maxSteeringRate, steeringDiff / dt))
-  state.steeringAngle += state.steeringVelocity * dt
-
-  // Calculate forces
-  let totalLongitudinalForce = 0
-  let totalLateralForce = 0
-  let totalYawMoment = 0
-  let totalVerticalForce = 0
-
-  // Process each wheel
-  for (let i = 0; i < 4; i++) {
-    const isFront = i < 2
-    const isLeft = i % 2 === 0
-
-    // Wheel position in world space
-    const wheelWorldPos = new THREE.Vector3(
-      state.position.x + wheelPositions[i].x * Math.cos(state.rotation) - wheelPositions[i].z * Math.sin(state.rotation),
-      state.position.y - config.centerOfGravityHeight,
-      state.position.z + wheelPositions[i].x * Math.sin(state.rotation) + wheelPositions[i].z * Math.cos(state.rotation)
-    )
-
-    // Ground contact (simplified: wheels always on ground)
-    const normalForce = (config.mass / 4) * 9.81
-
-    // Tire slip angle
-    const forwardDir = new THREE.Vector3(Math.sin(state.rotation), 0, Math.cos(state.rotation))
-    const rightDir = new THREE.Vector3(Math.cos(state.rotation), 0, -Math.sin(state.rotation))
-
-    const localVelocity = state.velocity.clone().sub(forwardDir.multiplyScalar(state.velocity.dot(forwardDir)))
-    let slipAngle = Math.atan2(localVelocity.dot(rightDir), Math.max(0.1, state.speed))
-
-    // Add steering influence to front wheels
-    if (isFront) {
-      slipAngle -= state.steeringAngle
+    const loadChassis = () => {
+      return new Promise((resolve, reject) => {
+        gltfLoader.load('/vehicle/static/car/chassis.gltf', 
+          (gltf) => {
+            this.chassisMesh = gltf.scene
+            // Apply scale to the model
+            this.chassisMesh.scale.set(this.scale, this.scale, this.scale)
+            this.chassis.add(this.chassisMesh)
+            this.chassisMesh.position.set(this.chassisModelPos.x, this.chassisModelPos.y, this.chassisModelPos.z)
+            this.scene.add(this.chassis)
+            resolve()
+          },
+          undefined,
+          reject
+        )
+      })
     }
 
-    state.tireSlip[i] = slipAngle
-
-    // Tire grip force
-    const gripForce = calculateTireGripForce(slipAngle, normalForce, config)
-
-    // Longitudinal force (traction/braking)
-    let longitudinalForce = 0
-    if (isFront) {
-      // Front wheel drive (adjust if rear-wheel drive)
-      longitudinalForce = state.throttle * config.maxForce / 2
-    } else {
-      // Rear wheels
-      longitudinalForce = state.throttle * config.maxForce / 2
+    const loadWheels = () => {
+      const wheelPromises = []
+      for (let i = 0; i < 4; i++) {
+        wheelPromises.push(new Promise((resolve, reject) => {
+          gltfLoader.load('/vehicle/static/car/wheel.gltf', 
+            (gltf) => {
+              const model = gltf.scene
+              this.wheels[i] = model
+              const s = this.wheelScale.frontWheel
+              if (i === 1 || i === 3) {
+                model.scale.set(-1 * s, 1 * s, -1 * s)
+              } else {
+                model.scale.set(1 * s, 1 * s, 1 * s)
+              }
+              this.scene.add(model)
+              resolve()
+            },
+            undefined,
+            reject
+          )
+        }))
+      }
+      return Promise.all(wheelPromises)
     }
 
-    // Braking force (all wheels)
-    longitudinalForce -= state.brake * config.brakingForce
-
-    // Lateral force from tire slip
-    const lateralForce = gripForce * Math.sin(slipAngle)
-
-    // Add to totals
-    const forceDir = new THREE.Vector3(
-      Math.sin(state.rotation + (isFront ? state.steeringAngle : 0)),
-      0,
-      Math.cos(state.rotation + (isFront ? state.steeringAngle : 0))
-    )
-
-    totalLongitudinalForce += longitudinalForce
-    totalLateralForce += lateralForce * Math.cos(isFront ? state.steeringAngle : 0)
-
-    // Yaw moment from lateral forces
-    const wheelDistance = wheelPositions[i].z // Distance from center
-    totalYawMoment += lateralForce * wheelDistance
-
-    // Suspension force
-    const suspensionForce = calculateSuspensionForce(
-      state.suspensionLength[i],
-      state.velocity.y,
-      0,
-      config
-    )
-    totalVerticalForce += suspensionForce
+    return Promise.all([loadChassis(), loadWheels()])
   }
 
-  // Apply drag and rolling resistance
-  const speed = state.speed
-  const dragForce = -0.5 * config.dragCoefficient * speed * speed * Math.sign(speed)
-  const rollingResistance = -config.rollingResistance * config.mass * 9.81 * Math.sign(state.speed)
+  setChassis() {
+    const chassisShape = new CANNON.Box(new CANNON.Vec3(this.chassisDimension.x * 0.5, this.chassisDimension.y * 0.5, this.chassisDimension.z * 0.5))
+    const chassisBody = new CANNON.Body({ mass: this.mass, material: new CANNON.Material({ friction: 0 }) })
+    chassisBody.addShape(chassisShape)
+    chassisBody.position.set(0, 1 * this.scale, 0)
 
-  totalLongitudinalForce += dragForce + rollingResistance
-
-  // Update linear velocity
-  const longitudinalAccel = (totalLongitudinalForce / config.mass) * Math.cos(state.rotation)
-  const lateralAccel = (totalLateralForce / config.mass) * Math.sin(state.rotation)
-
-  state.velocity.x += longitudinalAccel * dt
-  state.velocity.z += lateralAccel * dt
-
-  // Update speed
-  state.speed = Math.sqrt(state.velocity.x * state.velocity.x + state.velocity.z * state.velocity.z)
-  if (state.velocity.x * state.velocity.x + state.velocity.z * state.velocity.z < 0.01) {
-    state.speed = 0
-  }
-
-  // Update position
-  state.position.x += state.velocity.x * dt
-  state.position.z += state.velocity.z * dt
-
-  // Update angular velocity
-  state.angularVelocity = totalYawMoment / config.inertia
-  state.rotation += state.angularVelocity * dt
-
-  // Normalize rotation
-  if (state.rotation > Math.PI) state.rotation -= 2 * Math.PI
-  if (state.rotation < -Math.PI) state.rotation += 2 * Math.PI
-
-  // Update wheel rotations
-  for (let i = 0; i < 4; i++) {
-    state.wheelRotation[i] += state.speed / config.tireRadius
-  }
-
-  // Vertical physics (gravity)
-  state.verticalVelocity += -9.81 * dt
-  state.position.y += state.verticalVelocity * dt
-
-  // Ground collision
-  if (state.position.y <= 0) {
-    state.position.y = 0
-    state.verticalVelocity = 0
-    state.isGrounded = true
-  } else {
-    state.isGrounded = false
-  }
-
-  return {
-    acceleration: longitudinalAccel,
-    lateralAcceleration: lateralAccel,
-    yawRate: state.angularVelocity
-  }
-}
-
-export function createVehicleMesh(scene, state, config) {
-  const vehicle = new THREE.Group()
-
-  // Chassis body
-  const chassisGeometry = new THREE.BoxGeometry(config.width, config.height, config.length)
-  const chassisMaterial = new THREE.MeshPhongMaterial({ color: 0xff0000 })
-  const chassis = new THREE.Mesh(chassisGeometry, chassisMaterial)
-  chassis.castShadow = true
-  chassis.receiveShadow = true
-  chassis.position.y = config.height / 2 + config.suspensionRestHeight
-  vehicle.add(chassis)
-
-  // Roof
-  const roofGeometry = new THREE.BoxGeometry(config.width * 0.85, config.height * 0.6, config.length * 0.5)
-  const roofMaterial = new THREE.MeshPhongMaterial({ color: 0xcc0000 })
-  const roof = new THREE.Mesh(roofGeometry, roofMaterial)
-  roof.castShadow = true
-  roof.receiveShadow = true
-  roof.position.y = config.height + config.suspensionRestHeight
-  roof.position.z = -config.length * 0.1
-  vehicle.add(roof)
-
-  // Windows
-  const windowMaterial = new THREE.MeshPhongMaterial({ color: 0x88ccff, transparent: true, opacity: 0.6 })
-  const windowGeometry = new THREE.BoxGeometry(config.width * 0.7, config.height * 0.4, 0.05)
-  const frontWindow = new THREE.Mesh(windowGeometry, windowMaterial)
-  frontWindow.position.y = config.height + config.suspensionRestHeight - 0.1
-  frontWindow.position.z = config.length / 2 - 0.05
-  vehicle.add(frontWindow)
-
-  // Create wheels
-  const wheels = []
-  const wheelPositions = [
-    [-config.track / 2, config.suspensionRestHeight, config.wheelBase / 2],
-    [config.track / 2, config.suspensionRestHeight, config.wheelBase / 2],
-    [-config.track / 2, config.suspensionRestHeight, -config.wheelBase / 2],
-    [config.track / 2, config.suspensionRestHeight, -config.wheelBase / 2]
-  ]
-
-  wheelPositions.forEach((pos, index) => {
-    const wheelGroup = new THREE.Group()
-    
-    // Tire
-    const tireGeometry = new THREE.CylinderGeometry(config.tireRadius, config.tireRadius, 0.2, 16)
-    const tireMaterial = new THREE.MeshPhongMaterial({ color: 0x333333 })
-    const tire = new THREE.Mesh(tireGeometry, tireMaterial)
-    tire.rotation.z = Math.PI / 2
-    tire.castShadow = true
-    tire.receiveShadow = true
-    wheelGroup.add(tire)
-
-    // Rim
-    const rimGeometry = new THREE.CylinderGeometry(config.tireRadius * 0.7, config.tireRadius * 0.7, 0.15, 16)
-    const rimMaterial = new THREE.MeshPhongMaterial({ color: 0x888888 })
-    const rim = new THREE.Mesh(rimGeometry, rimMaterial)
-    rim.rotation.z = Math.PI / 2
-    rim.castShadow = true
-    rim.receiveShadow = true
-    wheelGroup.add(rim)
-
-    wheelGroup.position.set(...pos)
-    vehicle.add(wheelGroup)
-    
-    wheels.push({
-      group: wheelGroup,
-      isFront: index < 2,
-      rotationX: 0
+    this.car = new CANNON.RaycastVehicle({
+      chassisBody,
+      indexRightAxis: 0,
+      indexUpAxis: 1,
+      indexForwardAxis: 2
     })
-  })
+    this.car.addToWorld(this.world)
+  }
 
-  vehicle.position.copy(state.position)
-  vehicle.rotation.y = state.rotation
-  vehicle.castShadow = true
-  scene.add(vehicle)
+  setWheels() {
+    const wheelOptions = {
+      radius: 0.34 * this.scale,
+      directionLocal: new CANNON.Vec3(0, -1, 0),
+      suspensionStiffness: 55,
+      suspensionRestLength: 0.5 * this.scale,
+      frictionSlip: 30,
+      dampingRelaxation: 2.3,
+      dampingCompression: 4.3,
+      maxSuspensionForce: 10000,
+      rollInfluence: 0.01,
+      axleLocal: new CANNON.Vec3(-1, 0, 0),
+      maxSuspensionTravel: 1 * this.scale,
+      customSlidingRotationalSpeed: 30
+    }
 
-  return {
-    mesh: vehicle,
-    wheels,
-    chassis
+    const s = this.scale
+    // Rear Wheels (Z = -1.32)
+    this.car.addWheel({ ...wheelOptions, chassisConnectionPointLocal: new CANNON.Vec3(0.75 * s, 0.1 * s, -1.32 * s) }) // 0
+    this.car.addWheel({ ...wheelOptions, chassisConnectionPointLocal: new CANNON.Vec3(-0.78 * s, 0.1 * s, -1.32 * s) }) // 1
+    
+    // Front Wheels (Z = 1.25)
+    this.car.addWheel({ ...wheelOptions, chassisConnectionPointLocal: new CANNON.Vec3(0.75 * s, 0.1 * s, 1.25 * s) }) // 2
+    this.car.addWheel({ ...wheelOptions, chassisConnectionPointLocal: new CANNON.Vec3(-0.78 * s, 0.1 * s, 1.25 * s) }) // 3
+  }
+
+  setupPhysicsSync() {
+    this.world.addEventListener('postStep', () => {
+      if (!this.car.chassisBody) return
+
+      this.chassis.position.set(
+        this.car.chassisBody.position.x,
+        this.car.chassisBody.position.y,
+        this.car.chassisBody.position.z
+      )
+      this.chassis.quaternion.copy(this.car.chassisBody.quaternion)
+
+      for (let i = 0; i < 4; i++) {
+        if (this.car.wheelInfos[i] && this.wheels[i]) {
+          this.car.updateWheelTransform(i)
+          this.wheels[i].position.copy(this.car.wheelInfos[i].worldTransform.position)
+          this.wheels[i].quaternion.copy(this.car.wheelInfos[i].worldTransform.quaternion)
+        }
+      }
+      
+      this.position.copy(this.car.chassisBody.position)
+      const euler = new THREE.Euler().setFromQuaternion(this.car.chassisBody.quaternion)
+      this.rotation = euler.y
+      this.speed = this.car.chassisBody.velocity.length()
+    })
+  }
+
+  updateControls(keys) {
+    const maxSteerVal = 0.5
+    const maxForce = 500 * this.scale // Scale force with size
+    const slowDownCar = 10.0
+
+    if (keys.r) {
+      this.car.chassisBody.position.set(0, 1, 0)
+      this.car.chassisBody.quaternion.set(0, 0, 0, 1)
+      this.car.chassisBody.angularVelocity.set(0, 0, 0)
+      this.car.chassisBody.velocity.set(0, 0, 0)
+    }
+
+    let steerVal = 0
+    if (keys.a) steerVal = maxSteerVal
+    if (keys.d) steerVal = -maxSteerVal
+    
+    this.car.setSteeringValue(steerVal, 2)
+    this.car.setSteeringValue(steerVal, 3)
+    this.steeringAngle = steerVal 
+
+    let force = 0
+    if (keys.w) force = -maxForce
+    if (keys.s) force = maxForce
+    
+    if (force !== 0) {
+      for (let i = 0; i < 4; i++) {
+        this.car.applyEngineForce(force, i)
+        this.car.setBrake(0, i)
+      }
+    } else {
+      for (let i = 0; i < 4; i++) {
+        this.car.applyEngineForce(0, i)
+        this.car.setBrake(slowDownCar, i)
+      }
+    }
   }
 }
