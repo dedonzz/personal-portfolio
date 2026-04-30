@@ -13,7 +13,7 @@
       </div>
       <div class="info-panel" :class="{ visible: showInfo }">
         <h2><a v-if="infoLink" :href="infoLink" target="_blank" rel="noopener">{{ infoTitle }}</a><span v-else>{{ infoTitle }}</span></h2>
-        <p>{{ infoDescription }}</p>
+        <p v-html="infoDescription"></p>
       </div>
     </div>
   </div>
@@ -67,14 +67,19 @@ export default {
     const updateFurnitureInfo = (vehiclePos) => {
       let nearestFurniture = null
       let nearestDistance = Infinity
+      
       for (const item of furnitureItems) {
-        const distance = item.mesh.position.distanceTo(vehiclePos)
+        // Calculate distance from the nearest point on the furniture box to the vehicle
+        const box = new THREE.Box3().setFromObject(item.mesh)
+        const distance = box.distanceToPoint(vehiclePos)
+        
         if (distance < nearestDistance) {
           nearestDistance = distance
           nearestFurniture = item
         }
       }
-      if (nearestFurniture && nearestDistance <= 5) { // Reduced distance since car is smaller
+      
+      if (nearestFurniture && nearestDistance <= 2) { // 2 units = 20cm from the edge
         showInfo.value = true
         infoTitle.value = nearestFurniture.name
         infoDescription.value = nearestFurniture.description
@@ -96,11 +101,20 @@ export default {
         // Keep OrbitControls target in sync in case controls logic is updated
         controls.target.copy(vehicle.position)
 
-        if (roomData) {
-          roomData.backWall.visible = camera.position.z >= -15
-          roomData.frontWall.visible = camera.position.z <= 15
-          roomData.leftWall.visible = camera.position.x >= -15
-          roomData.rightWall.visible = camera.position.x <= 15
+        if (roomData && vehicle) {
+          const carX = vehicle.position.x
+          const carZ = vehicle.position.z
+          const camX = camera.position.x
+          const camZ = camera.position.z
+
+          const isBetween = (a, b, target) => (a - target) * (b - target) <= 0
+
+          roomData.backWall.visible = !isBetween(camZ, carZ, -22.5)
+          roomData.leftWall.visible = !isBetween(camX, carX, -15)
+          roomData.rectRightWall.visible = !isBetween(camX, carX, 15)
+          roomData.sqRightWall.visible = !isBetween(camX, carX, 5)
+          roomData.rectFrontWall.visible = !isBetween(camZ, carZ, 22.5)
+          roomData.sqFrontWall.visible = !isBetween(camZ, carZ, 42.5)
         }
       }
     }
@@ -217,6 +231,7 @@ export default {
   margin: 0;
   padding: 0;
   overflow: hidden;
+  font-family: 'Poppins', sans-serif;
 }
 
 .canvas-container {
@@ -240,7 +255,7 @@ export default {
   color: white;
   padding: 15px;
   border-radius: 8px;
-  font-family: 'Inter', sans-serif;
+  font-family: 'Poppins', sans-serif;
   font-size: 14px;
   max-width: 350px;
   margin-bottom: 10px;
@@ -257,7 +272,7 @@ export default {
   color: #00ffcc;
   padding: 12px;
   border-radius: 8px;
-  font-family: 'Courier New', monospace;
+  font-family: 'Poppins', sans-serif;
   font-size: 13px;
   max-width: 200px;
   margin-bottom: 10px;
@@ -288,5 +303,23 @@ export default {
 .info-panel.visible {
   opacity: 1;
   transform: translateX(0);
+}
+
+.info-panel p {
+  white-space: pre-wrap;
+  line-height: 1.5;
+  margin: 10px 0 0 0;
+  font-size: 15px;
+}
+
+.info-panel p a {
+  color: #0077ff;
+  text-decoration: underline;
+  pointer-events: auto;
+  font-weight: bold;
+}
+
+.info-panel p a:hover {
+  color: #0055cc;
 }
 </style>

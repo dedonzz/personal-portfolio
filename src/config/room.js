@@ -2,11 +2,44 @@ import * as THREE from 'three'
 import * as CANNON from 'cannon-es'
 
 export function createRoom(scene, world) {
-  const wallBoxes = []
-  let backWall = null
-  let frontWall = null
-  let leftWall = null
-  let rightWall = null
+  // Dimensions (1 unit = 10cm)
+  const rectW = 30 // 300cm
+  const rectL = 45 // 450cm
+  const sqS = 20   // 200cm
+  const wallHeight = 20
+  const wallThickness = 0.5
+
+  // Texture Loader
+  const textureLoader = new THREE.TextureLoader()
+
+  // Floor Texture
+  const floorTexture = textureLoader.load('/models/floor_texture.jpg')
+  floorTexture.wrapS = THREE.RepeatWrapping
+  floorTexture.wrapT = THREE.RepeatWrapping
+  floorTexture.repeat.set(4, 6)
+
+  // Wall Texture
+  const wallTexture = textureLoader.load('/models/wall_texture.jpg')
+  wallTexture.wrapS = THREE.RepeatWrapping
+  wallTexture.wrapT = THREE.RepeatWrapping
+
+  // Materials
+  const groundMaterial = new THREE.MeshStandardMaterial({
+    map: floorTexture,
+    roughness: 0.8,
+    metalness: 0.1
+  })
+
+  const wallMaterial = new THREE.MeshStandardMaterial({
+    map: wallTexture,
+    roughness: 0.9,
+    metalness: 0.05
+  })
+
+  const ceilingMaterial = new THREE.MeshStandardMaterial({
+    color: 0xf5deb3,
+    roughness: 1
+  })
 
   // Lights
   const hemiLight = new THREE.HemisphereLight(0xffffff, 0x666666, 0.9)
@@ -29,72 +62,98 @@ export function createRoom(scene, world) {
   pointLight.position.set(0, 15, 0)
   scene.add(pointLight)
 
-  // Room floor
-  const groundSize = 30
-  const groundGeometry = new THREE.PlaneGeometry(groundSize, groundSize)
-  const groundMaterial = new THREE.MeshLambertMaterial({ color: 0xd2b48c })
-  const ground = new THREE.Mesh(groundGeometry, groundMaterial)
-  ground.rotation.x = -Math.PI / 2
-  ground.receiveShadow = true
-  scene.add(ground)
+  // Floor Meshes - Square aligned with the left side of the rectangle
+  const rectFloor = new THREE.Mesh(new THREE.PlaneGeometry(rectW, rectL), groundMaterial)
+  rectFloor.rotation.x = -Math.PI / 2
+  rectFloor.receiveShadow = true
+  scene.add(rectFloor)
 
-  // Cannon Ground
-  const groundShape = new CANNON.Plane()
+  const sqFloor = new THREE.Mesh(new THREE.PlaneGeometry(sqS, sqS), groundMaterial)
+  sqFloor.rotation.x = -Math.PI / 2
+  // Center is offset to align left: Rect left is -15, Sq left is -15. 
+  // Sq center is -15 + sqS/2 = -15 + 10 = -5.
+  sqFloor.position.set(-5, 0, rectL / 2 + sqS / 2)
+  sqFloor.receiveShadow = true
+  scene.add(sqFloor)
+
+  // Physics Ground
   const groundBody = new CANNON.Body({ mass: 0 })
-  groundBody.addShape(groundShape)
-  groundBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2)
+  const rectShape = new CANNON.Box(new CANNON.Vec3(rectW / 2, 0.1, rectL / 2))
+  groundBody.addShape(rectShape, new CANNON.Vec3(0, -0.1, 0))
+  const sqShape = new CANNON.Box(new CANNON.Vec3(sqS / 2, 0.1, sqS / 2))
+  groundBody.addShape(sqShape, new CANNON.Vec3(-5, -0.1, rectL / 2 + sqS / 2))
   world.addBody(groundBody)
 
-  const gridHelper = new THREE.GridHelper(groundSize, 30, 0xffffff, 0xffffff)
-  gridHelper.material.opacity = 0.2
-  gridHelper.material.transparent = true
-  scene.add(gridHelper)
+  // Walls Groups for visibility logic in App.vue
+  const backWall = new THREE.Group()
+  const frontWall = new THREE.Group()
+  const leftWall = new THREE.Group()
+  const rightWall = new THREE.Group()
+  scene.add(backWall, frontWall, leftWall, rightWall)
 
-  // Room walls - enclosed room
-  const wallHeight = 20
-  const roomSize = 30
-  const wallThickness = 0.5
-  const wallMaterial = new THREE.MeshPhongMaterial({ color: 0xd4a574 })
-
-  const createWall = (width, height, depth, x, y, z) => {
+  const createWall = (width, height, depth, x, y, z, group) => {
     const geometry = new THREE.BoxGeometry(width, height, depth)
     const mesh = new THREE.Mesh(geometry, wallMaterial)
     mesh.position.set(x, y, z)
     mesh.receiveShadow = true
-    scene.add(mesh)
+    group.add(mesh)
 
-    // Cannon wall
     const shape = new CANNON.Box(new CANNON.Vec3(width / 2, height / 2, depth / 2))
     const body = new CANNON.Body({ mass: 0 })
     body.addShape(shape)
     body.position.set(x, y, z)
     world.addBody(body)
-
     return mesh
   }
 
-  // Back wall
-  backWall = createWall(roomSize, wallHeight, wallThickness, 0, wallHeight / 2, -roomSize / 2)
-  // Front wall
-  frontWall = createWall(roomSize, wallHeight, wallThickness, 0, wallHeight / 2, roomSize / 2)
-  // Left wall
-  leftWall = createWall(wallThickness, wallHeight, roomSize, -roomSize / 2, wallHeight / 2, 0)
-  // Right wall
-  rightWall = createWall(wallThickness, wallHeight, roomSize, roomSize / 2, wallHeight / 2, 0)
+  // 1. Back Wall (Rectangle back side)
+  createWall(rectW, wallHeight, wallThickness, 0, wallHeight / 2, -rectL / 2, backWall)
 
-  // Ceiling
-  const ceilingGeometry = new THREE.PlaneGeometry(30, 30)
-  const ceilingMaterial = new THREE.MeshPhongMaterial({ color: 0xf5deb3 })
-  const ceiling = new THREE.Mesh(ceilingGeometry, ceilingMaterial)
-  ceiling.rotation.x = Math.PI / 2
-  ceiling.position.y = wallHeight
-  ceiling.receiveShadow = true
-  scene.add(ceiling)
+  // 2. Left Walls (Continuous from rectangle to square)
+  createWall(wallThickness, wallHeight, rectL + sqS, -rectW / 2, wallHeight / 2, sqS / 2, leftWall)
+
+  // 3. Right Walls
+  // Rectangle right side
+  const rectRightWall = new THREE.Group()
+  scene.add(rectRightWall)
+  createWall(wallThickness, wallHeight, rectL, rectW / 2, wallHeight / 2, 0, rectRightWall)
+
+  // Square right side (offset)
+  const sqRightWall = new THREE.Group()
+  scene.add(sqRightWall)
+  createWall(wallThickness, wallHeight, sqS, 5, wallHeight / 2, rectL / 2 + sqS / 2, sqRightWall)
+
+  // 4. Front Walls
+  // Rectangle front side connecting piece
+  const rectFrontWall = new THREE.Group()
+  scene.add(rectFrontWall)
+  const connectWidth = rectW - sqS // 30 - 20 = 10
+  createWall(connectWidth, wallHeight, wallThickness, rectW / 2 - connectWidth / 2, wallHeight / 2, rectL / 2, rectFrontWall)
+
+  // Square front side
+  const sqFrontWall = new THREE.Group()
+  scene.add(sqFrontWall)
+  createWall(sqS, wallHeight, wallThickness, -5, wallHeight / 2, rectL / 2 + sqS, sqFrontWall)
+
+  // Ceiling Meshes
+  const ceilingRect = new THREE.Mesh(new THREE.PlaneGeometry(rectW, rectL), ceilingMaterial)
+  ceilingRect.rotation.x = Math.PI / 2
+  ceilingRect.position.y = wallHeight
+  ceilingRect.receiveShadow = true
+  scene.add(ceilingRect)
+
+  const ceilingSq = new THREE.Mesh(new THREE.PlaneGeometry(sqS, sqS), ceilingMaterial)
+  ceilingSq.rotation.x = Math.PI / 2
+  ceilingSq.position.set(-5, wallHeight, rectL / 2 + sqS / 2)
+  ceilingSq.receiveShadow = true
+  scene.add(ceilingSq)
 
   return {
     backWall,
-    frontWall,
     leftWall,
-    rightWall
+    rectRightWall,
+    sqRightWall,
+    rectFrontWall,
+    sqFrontWall
   }
 }

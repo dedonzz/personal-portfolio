@@ -27,7 +27,7 @@ export function createFurniture(scene, world) {
     const coneGroup = new THREE.Group()
 
     // Main cone body
-    const coneGeometry = new THREE.ConeGeometry(0.3, 0.7, 16)
+    const coneGeometry = new THREE.ConeGeometry(0.3, 0.7, 6)
     const coneMaterial = new THREE.MeshPhongMaterial({ color: 0xffa500, shininess: 30 })
     const coneMesh = new THREE.Mesh(coneGeometry, coneMaterial)
     coneMesh.castShadow = true
@@ -35,7 +35,7 @@ export function createFurniture(scene, world) {
     coneGroup.add(coneMesh)
 
     // White stripe at the base
-    const stripeGeometry = new THREE.CylinderGeometry(0.31, 0.31, 0.05, 16)
+    const stripeGeometry = new THREE.CylinderGeometry(0.31, 0.31, 0.05, 6)
     const stripeMaterial = new THREE.MeshPhongMaterial({ color: 0xffffff, shininess: 30 })
     const stripeMesh = new THREE.Mesh(stripeGeometry, stripeMaterial)
     stripeMesh.position.y = -0.325
@@ -46,7 +46,7 @@ export function createFurniture(scene, world) {
     coneGroup.position.set(x, y + 0.35, z)
     scene.add(coneGroup)
 
-    const coneShape = new CANNON.Cylinder(0.3, 0.1, 0.7, 16)
+    const coneShape = new CANNON.Cylinder(0.3, 0.1, 0.7, 6)
     const coneBody = new CANNON.Body({ mass: 5, material: new CANNON.Material({ friction: 0.4, restitution: 0.1 }) })
     coneBody.addShape(coneShape)
     coneBody.position.set(x, y + 0.35, z)
@@ -57,16 +57,24 @@ export function createFurniture(scene, world) {
     furnitureItems.push({ mesh: coneGroup, body: coneBody, name, description, link: '' })
   }
 
-  // Furniture Item 1 - Box
-  addFurnitureItem(6, 1.5, 3, -10, 0.75, -5, 0x8b5a2b, 'Furniture 1', 'A rectangular box for decoration.')
 
-  // Furniture Item 2 - Box
-  addFurnitureItem(5, 2, 2, 10, 1, -8, 0xa0522d, 'Furniture 2', 'Another rectangular box for the space.')
+  // Furniture (w, h, l, x-axis, z-axis, y-axis, color)
+  // Bed - 100cm x 20cm x 200cm
+  addFurnitureItem(10, 2, 20, -10, 1, -12, 0x8b5a2b, 'About Me', 'Consultant in Deloitte’s Engineering, AI & Data team. Providing consulting services in software development, data engineering, analytics, and project management, with hands-on experience in both front-end and back-end development, system analysis, and leading tech projects. Google Cloud Certified Professional Data Engineer.\n\nI am passionate about solving complex problems through data-driven approaches. I am also a marathon enthusiast.')
 
-  // Furniture Item 3 - Box (McQueen Exhibit)
+  // Desk - 50cm x 50cm x 100cm
+  addFurnitureItem(5, 5, 10, 12.5, 2.5, -8, 0x0077ff, 'Work Experiences', '1. <a href="https://en.wikipedia.org/wiki/Taeyang" target="_blank" rel="noopener">OMG</a>\n\n2. <a href="https://en.wikipedia.org/wiki/T.O.P" target="_blank" rel="noopener">DAMN</a>\n\n3. <a href="https://en.wikipedia.org/wiki/G-Dragon" target="_blank" rel="noopener">LYCK</a>')
+
+  // Wardrobe - 30cm x 25cm x 15cm
   addFurnitureItem(3, 2.5, 1.5, 8, 1.25, 10, 0xffd700, 'McQueen Exhibit', 'Discover Lightning McQueen, the legendary racecar from Radiator Springs.', 'https://en.wikipedia.org/wiki/Cars_(film)')
 
-  addPushableCone(-5, 0.25, 8, 0xffa500, 'Traffic Cone', 'A realistic traffic cone the main vehicle can bump and push around.')
+
+  // 6 Cones before the ramp (slalom)
+  for (let i = 0; i < 6; i++) {
+    const row = Math.floor(i / 2)
+    const col = i % 2
+    addPushableCone(-2 + col * 4, 0.25, -12 + row * 3, 0xffa500, `Cone ${i + 1}`, 'Part of the jump challenge.')
+  }
 
   return {
     furnitureItems

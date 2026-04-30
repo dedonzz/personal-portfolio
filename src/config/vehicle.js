@@ -175,7 +175,7 @@ export class Vehicle {
 
   updateControls(keys) {
     const maxSteerVal = 0.5
-    const maxForce = 500 * this.scale // Scale force with size
+    const maxForce = 1000 * this.scale // Increased force for better climbing
     const slowDownCar = 10.0
 
     if (keys.r) {
