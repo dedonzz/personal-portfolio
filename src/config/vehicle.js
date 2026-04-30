@@ -62,7 +62,7 @@ export class Vehicle {
 
     const loadChassis = () => {
       return new Promise((resolve, reject) => {
-        gltfLoader.load('/vehicle/static/car/chassis.gltf', 
+        gltfLoader.load('/models/chassis.gltf', 
           (gltf) => {
             this.chassisMesh = gltf.scene
             // Apply scale to the model
@@ -82,7 +82,7 @@ export class Vehicle {
       const wheelPromises = []
       for (let i = 0; i < 4; i++) {
         wheelPromises.push(new Promise((resolve, reject) => {
-          gltfLoader.load('/vehicle/static/car/wheel.gltf', 
+          gltfLoader.load('/models/wheel.gltf', 
             (gltf) => {
               const model = gltf.scene
               this.wheels[i] = model
