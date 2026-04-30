@@ -29,8 +29,8 @@ export function createRoom(scene, world) {
   pointLight.position.set(0, 15, 0)
   scene.add(pointLight)
 
-  // Ground plane
-  const groundSize = 100
+  // Room floor
+  const groundSize = 30
   const groundGeometry = new THREE.PlaneGeometry(groundSize, groundSize)
   const groundMaterial = new THREE.MeshLambertMaterial({ color: 0xd2b48c })
   const ground = new THREE.Mesh(groundGeometry, groundMaterial)
@@ -45,7 +45,7 @@ export function createRoom(scene, world) {
   groundBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2)
   world.addBody(groundBody)
 
-  const gridHelper = new THREE.GridHelper(groundSize, 50, 0xffffff, 0xffffff)
+  const gridHelper = new THREE.GridHelper(groundSize, 30, 0xffffff, 0xffffff)
   gridHelper.material.opacity = 0.2
   gridHelper.material.transparent = true
   scene.add(gridHelper)

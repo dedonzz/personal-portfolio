@@ -87,13 +87,15 @@ export default {
     const updateCamera = () => {
       if (vehicle && vehicle.position) {
         // 2.5D Isometric Style Offset
-        // Fixed diagonal angle regardless of vehicle rotation
-        const cameraOffset = new THREE.Vector3(12, 12, 12) 
-        
-        const targetPos = vehicle.position.clone().add(cameraOffset)
-        camera.position.lerp(targetPos, 0.08) // Slightly faster lerp for snappier feel
+        const cameraOffset = new THREE.Vector3(14, 12, 14)
+        const desiredPosition = vehicle.position.clone().add(cameraOffset)
+
+        camera.position.lerp(desiredPosition, 0.12)
         camera.lookAt(vehicle.position)
-        
+
+        // Keep OrbitControls target in sync in case controls logic is updated
+        controls.target.copy(vehicle.position)
+
         if (roomData) {
           roomData.backWall.visible = camera.position.z >= -15
           roomData.frontWall.visible = camera.position.z <= 15
@@ -171,6 +173,13 @@ export default {
           updateFurnitureInfo(vehicle.position)
           updateCamera()
         }
+
+        furnitureItems.forEach((item) => {
+          if (item.body) {
+            item.mesh.position.copy(item.body.position)
+            item.mesh.quaternion.copy(item.body.quaternion)
+          }
+        })
 
         controls.update()
         renderer.render(scene, camera)
