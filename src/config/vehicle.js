@@ -110,7 +110,10 @@ export class Vehicle {
     const chassisShape = new CANNON.Box(new CANNON.Vec3(this.chassisDimension.x * 0.5, this.chassisDimension.y * 0.5, this.chassisDimension.z * 0.5))
     const chassisBody = new CANNON.Body({ mass: this.mass, material: new CANNON.Material({ friction: 0 }) })
     chassisBody.addShape(chassisShape)
-    chassisBody.position.set(0, 1 * this.scale, 0)
+    const startHeight = 2 * this.scale
+    chassisBody.position.set(0, startHeight, 0)
+    chassisBody.linearDamping = 0
+    chassisBody.angularDamping = 0
 
     this.car = new CANNON.RaycastVehicle({
       chassisBody,
@@ -127,7 +130,7 @@ export class Vehicle {
       directionLocal: new CANNON.Vec3(0, -1, 0),
       suspensionStiffness: 55,
       suspensionRestLength: 0.5 * this.scale,
-      frictionSlip: 30,
+      frictionSlip: 6,
       dampingRelaxation: 2.3,
       dampingCompression: 4.3,
       maxSuspensionForce: 10000,
@@ -176,10 +179,11 @@ export class Vehicle {
   updateControls(keys) {
     const maxSteerVal = 0.5
     const maxForce = 1000 * this.scale // Increased force for better climbing
-    const slowDownCar = 10.0
+    const slowDownCar = 40.0 // Stronger coast braking for faster deceleration
 
     if (keys.r) {
-      this.car.chassisBody.position.set(0, 1, 0)
+      const resetHeight = 5 * this.scale
+      this.car.chassisBody.position.set(0, resetHeight, 0)
       this.car.chassisBody.quaternion.set(0, 0, 0, 1)
       this.car.chassisBody.angularVelocity.set(0, 0, 0)
       this.car.chassisBody.velocity.set(0, 0, 0)
@@ -194,19 +198,18 @@ export class Vehicle {
     this.steeringAngle = steerVal 
 
     let force = 0
-    if (keys.w) force = -maxForce
-    if (keys.s) force = maxForce
-    
-    if (force !== 0) {
-      for (let i = 0; i < 4; i++) {
-        this.car.applyEngineForce(force, i)
-        this.car.setBrake(0, i)
-      }
-    } else {
-      for (let i = 0; i < 4; i++) {
-        this.car.applyEngineForce(0, i)
-        this.car.setBrake(slowDownCar, i)
-      }
+    if (keys.w) {
+      force = -maxForce
+    } else if (keys.s) {
+      force = maxForce
+    }
+
+    const isBraking = keys.space
+    const isCoasting = !keys.w && !keys.s && !keys.space
+    const coastBrake = 1.0
+    for (let i = 0; i < 4; i++) {
+      this.car.applyEngineForce(force, i)
+      this.car.setBrake(isBraking ? slowDownCar : (isCoasting ? coastBrake : 0), i)
     }
   }
 }

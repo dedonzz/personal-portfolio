@@ -3,7 +3,7 @@
     <div ref="container" class="canvas-container"></div>
     <div class="ui-overlay">
       <div class="controls-info">
-        <p><strong>Controls:</strong> W/↑ Gas | S/↓ Brake | A/← Left | D/→ Right | R Reset</p>
+        <p><strong>Controls:</strong> W/↑ Gas | Space Brake | A/← Left | D/→ Right | R Reset</p>
         <p><strong>Camera Mode:</strong> 2.5D Fixed Angle</p>
         <p v-if="loading">Loading assets...</p>
       </div>
@@ -44,7 +44,7 @@ export default {
     let furnitureItems = []
     let roomData = null
     
-    const keys = { w: false, a: false, s: false, d: false, r: false }
+    const keys = { w: false, a: false, s: false, d: false, r: false, space: false }
 
     const handleKeyDown = (e) => {
       const key = e.key.toLowerCase()
@@ -53,6 +53,7 @@ export default {
       if (key === 's' || key === 'arrowdown') keys.s = true
       if (key === 'd' || key === 'arrowright') keys.d = true
       if (key === 'r') keys.r = true
+      if (key === ' ' || key === 'spacebar') keys.space = true
     }
 
     const handleKeyUp = (e) => {
@@ -62,6 +63,7 @@ export default {
       if (key === 's' || key === 'arrowdown') keys.s = false
       if (key === 'd' || key === 'arrowright') keys.d = false
       if (key === 'r') keys.r = false
+      if (key === ' ' || key === 'spacebar') keys.space = false
     }
 
     const updateFurnitureInfo = (vehiclePos) => {
@@ -79,7 +81,7 @@ export default {
         }
       }
       
-      if (nearestFurniture && nearestDistance <= 2) { // 2 units = 20cm from the edge
+      if (nearestFurniture && nearestDistance <= 2 && (nearestFurniture.name || nearestFurniture.description)) { // 2 units = 20cm from the edge
         showInfo.value = true
         infoTitle.value = nearestFurniture.name
         infoDescription.value = nearestFurniture.description
@@ -87,6 +89,54 @@ export default {
       } else {
         showInfo.value = false
       }
+    }
+
+    const raycaster = new THREE.Raycaster()
+    const occludedFurniture = new Set()
+    const occlusionOpacity = 0.4
+
+    const setFurnitureOpacity = (object, opacity) => {
+      object.traverse((child) => {
+        if (child.isMesh && child.material) {
+          const materials = Array.isArray(child.material) ? child.material : [child.material]
+          materials.forEach((material) => {
+            material.transparent = opacity < 1
+            material.opacity = opacity
+            material.needsUpdate = true
+          })
+        }
+      })
+    }
+
+    const updateFurnitureOcclusion = () => {
+      if (!vehicle || !camera) return
+      const rayDirection = vehicle.position.clone().sub(camera.position)
+      const cameraDistance = rayDirection.length()
+      if (cameraDistance === 0) return
+
+      raycaster.set(camera.position, rayDirection.normalize())
+      const newlyOccluded = new Set()
+
+      furnitureItems.forEach((item) => {
+        const intersections = raycaster.intersectObject(item.mesh, true)
+        if (intersections.length > 0 && intersections[0].distance < cameraDistance - 0.1) {
+          newlyOccluded.add(item)
+        }
+      })
+
+      occludedFurniture.forEach((item) => {
+        if (!newlyOccluded.has(item)) {
+          setFurnitureOpacity(item.mesh, 1)
+          occludedFurniture.delete(item)
+        }
+      })
+
+      newlyOccluded.forEach((item) => {
+        if (!occludedFurniture.has(item)) {
+          setFurnitureOpacity(item.mesh, occlusionOpacity)
+          occludedFurniture.add(item)
+        }
+      })
     }
 
     const updateCamera = () => {
@@ -100,6 +150,8 @@ export default {
 
         // Keep OrbitControls target in sync in case controls logic is updated
         controls.target.copy(vehicle.position)
+
+        updateFurnitureOcclusion()
 
         if (roomData && vehicle) {
           const carX = vehicle.position.x
